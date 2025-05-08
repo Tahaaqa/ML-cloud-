@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from model_loader import ModelLoader
 import logging
+import tensorflow as tf
 logger = logging.getLogger(__name__)
 class InferenceEngine:
     def __init__(self, model_dir="inference_model"):
@@ -80,38 +81,44 @@ class InferenceEngine:
             Dictionary with RULA predictions and anomaly detection
         """
         # Run inference
-        model_outputs = self.model.predict(sequence, verbose=0)
-        
-        # Extract RULA scores and anomaly prediction
-        if isinstance(model_outputs, list):
-            # Multi-output model (RULA scores + anomaly)
-            rula_scores = model_outputs[0][0]  # First output tensor, first batch item
-            anomaly_prob = model_outputs[1][0][0]  # Second output tensor, first batch item, first (only) value
-        else:
-            # Single output model (just RULA scores)
-            rula_scores = model_outputs[0]
-            anomaly_prob = 0.0  # Default if model doesn't predict anomaly
-        
-        # Map scores to output columns
-        predictions = {}
-        for i, col in enumerate(self.rula_columns):
-            if i < len(rula_scores):
-                # Round RULA scores appropriately (they should be integers)
-                predictions[col] = round(float(rula_scores[i]))
-        
-        # Determine if this is an anomalous posture
-        is_anomaly = anomaly_prob > self.anomaly_threshold
-        
-        # Add anomaly information
-        predictions["anomaly_probability"] = float(anomaly_prob)
-        predictions["anomaly_detected"] = bool(is_anomaly)
-        predictions["anomaly_threshold"] = self.anomaly_threshold
-        
-        # Generate risk assessments
-        for col in self.rula_columns:
-            if col in predictions:
-                risk_col = col + "_Risk"
-                predictions[risk_col] = self.evaluate_rula_risk(predictions[col])
+        import gc
+        try: 
+            model_outputs = self.model.predict(sequence, verbose=0)
+            
+            # Extract RULA scores and anomaly prediction
+            if isinstance(model_outputs, list):
+                # Multi-output model (RULA scores + anomaly)
+                rula_scores = model_outputs[0][0]  # First output tensor, first batch item
+                anomaly_prob = model_outputs[1][0][0]  # Second output tensor, first batch item, first (only) value
+            else:
+                # Single output model (just RULA scores)
+                rula_scores = model_outputs[0]
+                anomaly_prob = 0.0  # Default if model doesn't predict anomaly
+            
+            # Map scores to output columns
+            predictions = {}
+            for i, col in enumerate(self.rula_columns):
+                if i < len(rula_scores):
+                    # Round RULA scores appropriately (they should be integers)
+                    predictions[col] = round(float(rula_scores[i]))
+            
+            # Determine if this is an anomalous posture
+            is_anomaly = anomaly_prob > self.anomaly_threshold
+            
+            # Add anomaly information
+            predictions["anomaly_probability"] = float(anomaly_prob)
+            predictions["anomaly_detected"] = bool(is_anomaly)
+            predictions["anomaly_threshold"] = self.anomaly_threshold
+            
+            # Generate risk assessments
+            for col in self.rula_columns:
+                if col in predictions:
+                    risk_col = col + "_Risk"
+                    predictions[risk_col] = self.evaluate_rula_risk(predictions[col])
+        finally:
+            gc.collect()
+            tf.keras.backend.clear_session()
+
         
         return predictions
     

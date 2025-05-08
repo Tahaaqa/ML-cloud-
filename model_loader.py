@@ -7,6 +7,8 @@ import pickle
 from sklearn.preprocessing import RobustScaler
 from collections import deque
 from dotenv import load_dotenv
+tf.config.optimizer.set_jit(True)
+tf.config.set_soft_device_placement(True)
 
 class ModelLoader:
     def __init__(self, model_dir="None"):
