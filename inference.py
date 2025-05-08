@@ -2,16 +2,18 @@ import os
 import numpy as np
 import pandas as pd
 from model_loader import ModelLoader
-
+import logging
+logger = logging.getLogger(__name__)
 class InferenceEngine:
     def __init__(self, model_dir="inference_model"):
         """Initialize the inference engine with model loader"""
-        self.model_loader = ModelLoader(os.path.join(os.path.dirname(__file__), "inference_model"))
+        self.model_loader = ModelLoader(model_dir)
         self.model = self.model_loader.get_model()
         self.anomaly_threshold = self.model_loader.get_anomaly_threshold()
         self.sequence_ready = False
         self.last_prediction = None
         self.prediction_count = 0
+        self.request_counter = 0
         
         # Output RULA column names for result mapping
         self.rula_columns = [
@@ -20,8 +22,17 @@ class InferenceEngine:
             "right_wrist_rula", "left_wrist_rula",
             "torso_rula", "neck_rula", "total_rula"
         ]
+
+        self._warmup_model()
+        logger.info("Cloud inference engine ready")
+
+    def _warmup_model(self):
+        dummy_data = {k: 0.0 for k in self.model_loader.input_columns}
+        for _ in range(3):  # 3 warmup iterations
+            self.process_frame(dummy_data)
+            self.model.predict(np.zeros((1,30,24)), verbose=0)
     
-    def process_frame(self, angles_dict):
+    def process_frame(self, angles_dict, is_batch=False):
         """
         Process a frame of joint angles and make predictions if enough frames are collected
         
@@ -32,26 +43,31 @@ class InferenceEngine:
             Dictionary containing predictions and anomaly status
         """
         # Preprocess the angles
-        processed_angles = self.model_loader.preprocess_angles(angles_dict)
-        
-        # Try to create a sequence
-        sequence = self.model_loader.create_sequence()
-        
-        if sequence is not None:
-            # We have enough frames to make a prediction
-            self.sequence_ready = True
-            predictions = self.make_prediction(sequence)
-            self.last_prediction = predictions
-            self.prediction_count += 1
-            return predictions
-        else:
-            # Not enough frames yet, sequence is building
-            self.sequence_ready = False
-            return {
-                "status": "collecting_sequence",
-                "frames_collected": len(self.model_loader.angle_buffer),
-                "frames_needed": self.model_loader.seq_length
-            }
+        self.request_counter += 1
+        try:
+            processed_angles = self.model_loader.preprocess_angles(angles_dict)
+            
+            # Try to create a sequence
+            sequence = self.model_loader.create_sequence()
+            
+            if sequence is not None:
+                # We have enough frames to make a prediction
+                self.sequence_ready = True
+                predictions = self.make_prediction(sequence)
+                self.last_prediction = predictions
+                self.prediction_count += 1
+                return predictions
+            else:
+                # Not enough frames yet, sequence is building
+                self.sequence_ready = False
+                return {
+                    "status": "collecting_sequence",
+                    "frames_collected": len(self.model_loader.angle_buffer),
+                    "frames_needed": self.model_loader.seq_length
+                }
+        except Exception as e:
+            logger.error(f"Processing failed: {str(e)}")
+            raise
     
     def make_prediction(self, sequence):
         """

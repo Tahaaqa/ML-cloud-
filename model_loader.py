@@ -6,13 +6,14 @@ import tensorflow as tf
 import pickle
 from sklearn.preprocessing import RobustScaler
 from collections import deque
+from dotenv import load_dotenv
 
 class ModelLoader:
-    def __init__(self, model_dir="inference_model"):
-        self.model_dir = model_dir
-        self.model_path = os.path.join(model_dir, "posture_model.keras")
-        self.scaler_path = os.path.join(model_dir, "scaler.pkl")
-        self.config_path = os.path.join(model_dir, "config.json")
+    def __init__(self, model_dir="None"):
+        self.model_dir =  model_dir or os.getenv("MODEL_DIR", "inference_model")
+        self.model_path = os.path.join(self.model_dir, "posture_model.keras")
+        self.scaler_path = os.path.join(self.model_dir, "scaler.pkl")
+        self.config_path = os.path.join(self.model_dir, "config.json")
         
         # Model parameters (will be loaded from config)
         self.seq_length = None
